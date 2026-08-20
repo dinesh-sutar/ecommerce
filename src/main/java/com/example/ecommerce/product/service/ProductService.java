@@ -1,5 +1,6 @@
 package com.example.ecommerce.product.service;
 
+import com.example.ecommerce.product.dto.CreateProductRequest;
 import com.example.ecommerce.product.dto.ProductResponse;
 import com.example.ecommerce.product.entity.Product;
 import com.example.ecommerce.product.repository.ProductRepository;
@@ -81,5 +82,22 @@ public class ProductService {
                 .stock(product.getStock())
                 .category(product.getCategory())
                 .build();
+    }
+
+    public ProductResponse createProduct(
+            CreateProductRequest request) {
+
+        Product product = Product.builder()
+                .name(request.getName())
+                .description(request.getDescription())
+                .price(request.getPrice())
+                .stock(request.getStock())
+                .category(request.getCategory())
+                .sku(request.getSku())
+                .build();
+
+        Product savedProduct = productRepository.save(product);
+
+        return mapToResponse(savedProduct);
     }
 }
