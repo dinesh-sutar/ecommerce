@@ -85,6 +85,83 @@ public class GlobalExceptionHandler {
                                 request);
         }
 
+        @ExceptionHandler(ResourceNotFoundException.class)
+        public ResponseEntity<ApiErrorResponse> handleResourceNotFound(
+                        ResourceNotFoundException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.NOT_FOUND,
+                                ex.getMessage(),
+                                request);
+        }
+
+        @ExceptionHandler(InvalidCouponException.class)
+        public ResponseEntity<ApiErrorResponse> handleInvalidCoupon(
+                        InvalidCouponException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.BAD_REQUEST,
+                                ex.getMessage(),
+                                request);
+        }
+
+        @ExceptionHandler(InvalidDiscountException.class)
+        public ResponseEntity<ApiErrorResponse> handleInvalidDiscount(
+                        InvalidDiscountException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.BAD_REQUEST,
+                                ex.getMessage(),
+                                request);
+        }
+
+        @ExceptionHandler(CouponAlreadyExistsException.class)
+        public ResponseEntity<ApiErrorResponse> handleCouponAlreadyExists(
+                        CouponAlreadyExistsException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.CONFLICT,
+                                ex.getMessage(),
+                                request);
+        }
+
+        @ExceptionHandler(DiscountAlreadyExistsException.class)
+        public ResponseEntity<ApiErrorResponse> handleDiscountAlreadyExists(
+                        DiscountAlreadyExistsException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.CONFLICT,
+                                ex.getMessage(),
+                                request);
+        }
+
+        @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+        public ResponseEntity<ApiErrorResponse> handleAccessDenied(
+                        org.springframework.security.access.AccessDeniedException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.FORBIDDEN,
+                                "Access is denied",
+                                request);
+        }
+
+        @ExceptionHandler(Exception.class)
+        public ResponseEntity<ApiErrorResponse> handleUnexpected(
+                        Exception ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.INTERNAL_SERVER_ERROR,
+                                "An unexpected error occurred",
+                                request);
+        }
+
         private ResponseEntity<ApiErrorResponse> buildResponse(
                         HttpStatus status,
                         String message,
