@@ -79,7 +79,7 @@ public class AuthService {
         public AuthResponse login(LoginRequest request) {
 
                 User user = userRepository.findByEmail(request.getEmail())
-                                .orElseThrow(() -> new IllegalArgumentException("Invalid email or password"));
+                                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password"));
 
                 if (!passwordEncoder.matches(
                                 request.getPassword(),
@@ -156,7 +156,7 @@ public class AuthService {
 
                 RefreshToken refreshToken = refreshTokenRepository
                                 .findByToken(token)
-                                .orElseThrow(() -> new IllegalArgumentException("Invalid refresh token"));
+                                .orElseThrow(() -> new InvalidRefreshTokenException("Invalid refresh token"));
 
                 refreshToken.setRevoked(true);
 

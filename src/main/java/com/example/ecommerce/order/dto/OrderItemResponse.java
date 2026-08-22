@@ -1,4 +1,4 @@
-package com.example.ecommerce.cart.dto;
+package com.example.ecommerce.order.dto;
 
 import lombok.Builder;
 import lombok.Getter;
@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 
 @Getter
 @Builder
-public class CartItemResponse {
+public class OrderItemResponse {
 
     private Long productId;
 
@@ -15,15 +15,11 @@ public class CartItemResponse {
 
     private String sku;
 
-    private BigDecimal price;
+    private BigDecimal unitPrice;
 
     private Integer quantity;
 
     private BigDecimal subtotal;
-
-    private Long discountId;
-
-    private String discountCode;
 
     private BigDecimal discountAmount;
 

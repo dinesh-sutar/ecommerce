@@ -14,5 +14,13 @@ public class CartResponse {
 
     private List<CartItemResponse> items;
 
+    private BigDecimal subtotal;
+
+    private BigDecimal discountAmount;
+
+    private String couponCode;
+
+    private BigDecimal couponDiscount;
+
     private BigDecimal totalAmount;
 }

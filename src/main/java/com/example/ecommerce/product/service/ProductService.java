@@ -1,5 +1,6 @@
 package com.example.ecommerce.product.service;
 
+import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.product.dto.CreateProductRequest;
 import com.example.ecommerce.product.dto.ProductResponse;
 import com.example.ecommerce.product.entity.Product;
@@ -65,7 +66,7 @@ public class ProductService {
 
         Product product = productRepository
                 .findById(id)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new ResourceNotFoundException(
                         "Product not found"));
 
         return mapToResponse(product);

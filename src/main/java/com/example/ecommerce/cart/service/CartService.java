@@ -7,6 +7,14 @@ import com.example.ecommerce.cart.entity.Cart;
 import com.example.ecommerce.cart.entity.CartItem;
 import com.example.ecommerce.cart.repository.CartItemRepository;
 import com.example.ecommerce.cart.repository.CartRepository;
+import com.example.ecommerce.coupon.dto.ApplyCouponRequest;
+import com.example.ecommerce.coupon.entity.Coupon;
+import com.example.ecommerce.coupon.service.CouponService;
+import com.example.ecommerce.discount.dto.ProductDiscountResult;
+import com.example.ecommerce.discount.service.DiscountService;
+import com.example.ecommerce.exception.InsufficientStockException;
+import com.example.ecommerce.exception.InvalidCouponException;
+import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.product.entity.Product;
 import com.example.ecommerce.product.repository.ProductRepository;
 import com.example.ecommerce.user.entity.User;
@@ -24,206 +32,334 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CartService {
 
-    private final CartRepository cartRepository;
-    private final CartItemRepository cartItemRepository;
-    private final ProductRepository productRepository;
-    private final UserRepository userRepository;
+        private final CartRepository cartRepository;
+        private final CartItemRepository cartItemRepository;
+        private final ProductRepository productRepository;
+        private final UserRepository userRepository;
+        private final CouponService couponService;
+        private final DiscountService discountService;
 
-    @Transactional
-    public CartResponse addToCart(
-            String email,
-            AddToCartRequest request) {
+        @Transactional
+        public CartResponse addToCart(
+                        String email,
+                        AddToCartRequest request) {
 
-        // 1. Get logged-in user
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                // 1. Get logged-in user
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        // 2. Get or create cart
-        Cart cart = cartRepository.findByUserId(user.getId())
-                .orElseGet(() -> {
+                // 2. Get or create cart
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseGet(() -> {
 
-                    Cart newCart = Cart.builder()
-                            .user(user)
-                            .items(new ArrayList<>())
-                            .build();
+                                        Cart newCart = Cart.builder()
+                                                        .user(user)
+                                                        .items(new ArrayList<>())
+                                                        .build();
 
-                    return cartRepository.save(newCart);
-                });
+                                        return cartRepository.save(newCart);
+                                });
 
-        // 3. Find product
-        Product product = productRepository.findById(
-                request.getProductId())
-                .orElseThrow(() -> new IllegalArgumentException("Product not found"));
+                // 3. Find product
+                Product product = productRepository.findById(
+                                request.getProductId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
-        // 4. Check whether product already exists in cart
-        CartItem cartItem = cartItemRepository
-                .findByCartIdAndProductId(
-                        cart.getId(),
-                        product.getId())
-                .orElse(null);
+                // 4. Check whether product already exists in cart
+                CartItem cartItem = cartItemRepository
+                                .findByCartIdAndProductId(
+                                                cart.getId(),
+                                                product.getId())
+                                .orElse(null);
 
-        int newQuantity;
+                int newQuantity;
 
-        if (cartItem != null) {
+                if (cartItem != null) {
 
-            newQuantity = cartItem.getQuantity()
-                    + request.getQuantity();
+                        newQuantity = cartItem.getQuantity()
+                                        + request.getQuantity();
 
-            // Check stock
-            if (newQuantity > product.getStock()) {
-                throw new IllegalArgumentException(
-                        "Requested quantity exceeds available stock");
-            }
+                        // Check stock
+                        if (newQuantity > product.getStock()) {
+                                throw new InsufficientStockException(
+                                                "Requested quantity exceeds available stock");
+                        }
 
-            cartItem.setQuantity(newQuantity);
+                        cartItem.setQuantity(newQuantity);
 
-        } else {
+                } else {
 
-            // Check stock
-            if (request.getQuantity() > product.getStock()) {
-                throw new IllegalArgumentException(
-                        "Requested quantity exceeds available stock");
-            }
+                        // Check stock
+                        if (request.getQuantity() > product.getStock()) {
+                                throw new InsufficientStockException(
+                                                "Requested quantity exceeds available stock");
+                        }
 
-            cartItem = CartItem.builder()
-                    .cart(cart)
-                    .product(product)
-                    .quantity(request.getQuantity())
-                    .build();
+                        cartItem = CartItem.builder()
+                                        .cart(cart)
+                                        .product(product)
+                                        .quantity(request.getQuantity())
+                                        .build();
 
-            cart.getItems().add(cartItem);
+                        cart.getItems().add(cartItem);
+                }
+
+                cartItemRepository.save(cartItem);
+
+                return buildCartResponse(cart);
         }
 
-        cartItemRepository.save(cartItem);
+        private CartResponse buildCartResponse(Cart cart) {
 
-        return buildCartResponse(cart);
-    }
+                List<CartItemResponse> items = cart.getItems()
+                                .stream()
+                                .map(item -> {
 
-    private CartResponse buildCartResponse(Cart cart) {
+                                        Product product = item.getProduct();
 
-        List<CartItemResponse> items = cart.getItems()
-                .stream()
-                .map(item -> {
+                                        BigDecimal subtotal = product.getPrice()
+                                                        .multiply(
+                                                                        BigDecimal.valueOf(
+                                                                                        item.getQuantity()));
 
-                    BigDecimal totalPrice = item.getProduct()
-                            .getPrice()
-                            .multiply(
-                                    BigDecimal.valueOf(
-                                            item.getQuantity()));
+                                        // Find best applicable product discount
+                                        ProductDiscountResult discountResult = discountService.getBestDiscount(
+                                                        product.getId(),
+                                                        product.getPrice(),
+                                                        item.getQuantity());
 
-                    return CartItemResponse.builder()
-                            .productId(
-                                    item.getProduct().getId())
-                            .productName(
-                                    item.getProduct().getName())
-                            .sku(
-                                    item.getProduct().getSku())
-                            .price(
-                                    item.getProduct().getPrice())
-                            .quantity(
-                                    item.getQuantity())
-                            .totalPrice(totalPrice)
-                            .build();
-                })
-                .toList();
+                                        return CartItemResponse.builder()
+                                                        .productId(product.getId())
+                                                        .productName(product.getName())
+                                                        .sku(product.getSku())
+                                                        .price(product.getPrice())
+                                                        .quantity(item.getQuantity())
+                                                        .subtotal(subtotal)
+                                                        .discountId(discountResult.getDiscountId())
+                                                        .discountCode(discountResult.getDiscountCode())
+                                                        .discountAmount(
+                                                                        discountResult.getDiscountAmount())
+                                                        .totalPrice(
+                                                                        discountResult.getFinalAmount())
+                                                        .build();
+                                })
+                                .toList();
 
-        BigDecimal totalAmount = items.stream()
-                .map(CartItemResponse::getTotalPrice)
-                .reduce(
-                        BigDecimal.ZERO,
-                        BigDecimal::add);
+                // Original cart subtotal before product discounts
+                BigDecimal subtotal = items.stream()
+                                .map(CartItemResponse::getSubtotal)
+                                .reduce(
+                                                BigDecimal.ZERO,
+                                                BigDecimal::add);
 
-        return CartResponse.builder()
-                .cartId(cart.getId())
-                .items(items)
-                .totalAmount(totalAmount)
-                .build();
-    }
+                // Total product-level discount
+                BigDecimal discountAmount = items.stream()
+                                .map(CartItemResponse::getDiscountAmount)
+                                .reduce(
+                                                BigDecimal.ZERO,
+                                                BigDecimal::add);
 
-    @Transactional(readOnly = true)
-    public CartResponse getCart(String email) {
+                // Cart amount after product discounts
+                BigDecimal amountAfterDiscount = items.stream()
+                                .map(CartItemResponse::getTotalPrice)
+                                .reduce(
+                                                BigDecimal.ZERO,
+                                                BigDecimal::add);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                String couponCode = null;
+                BigDecimal couponDiscount = BigDecimal.ZERO;
 
-        Cart cart = cartRepository.findByUserId(user.getId())
-                .orElseGet(() -> {
+                // Apply coupon if one is attached to the cart
+                if (cart.getCoupon() != null) {
 
-                    Cart newCart = Cart.builder()
-                            .user(user)
-                            .items(new ArrayList<>())
-                            .build();
+                        Coupon coupon = cart.getCoupon();
 
-                    return cartRepository.save(newCart);
-                });
+                        // Revalidate the coupon every time the cart is calculated.
+                        // If the coupon has expired or become inactive,
+                        // the user should not receive the discount.
+                        try {
+                                Coupon validCoupon = couponService.getValidCoupon(
+                                                coupon.getCode(),
+                                                amountAfterDiscount);
 
-        return buildCartResponse(cart);
-    }
+                                couponCode = validCoupon.getCode();
 
-    @Transactional
-    public CartResponse updateCartItem(
-            String email,
-            Long productId,
-            Integer quantity) {
+                                couponDiscount = couponService.calculateCouponDiscount(
+                                                validCoupon,
+                                                amountAfterDiscount);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                        } catch (InvalidCouponException ex) {
 
-        Cart cart = cartRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Cart not found"));
+                                // Automatically remove an invalid/expired coupon from the cart.
+                                cart.setCoupon(null);
+                                cartRepository.save(cart);
+                        }
+                }
 
-        CartItem cartItem = cartItemRepository
-                .findByCartIdAndProductId(cart.getId(), productId)
-                .orElseThrow(() -> new IllegalArgumentException("Product not found in cart"));
+                BigDecimal totalAmount = amountAfterDiscount
+                                .subtract(couponDiscount);
 
-        Product product = cartItem.getProduct();
-
-        if (quantity > product.getStock()) {
-            throw new IllegalArgumentException(
-                    "Requested quantity exceeds available stock");
+                return CartResponse.builder()
+                                .cartId(cart.getId())
+                                .items(items)
+                                .subtotal(subtotal)
+                                .discountAmount(discountAmount)
+                                .couponCode(couponCode)
+                                .couponDiscount(couponDiscount)
+                                .totalAmount(totalAmount)
+                                .build();
         }
 
-        cartItem.setQuantity(quantity);
+        @Transactional(readOnly = true)
+        public CartResponse getCart(String email) {
 
-        cartItemRepository.save(cartItem);
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        return buildCartResponse(cart);
-    }
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseGet(() -> {
 
-    @Transactional
-    public CartResponse removeCartItem(
-            String email,
-            Long productId) {
+                                        Cart newCart = Cart.builder()
+                                                        .user(user)
+                                                        .items(new ArrayList<>())
+                                                        .build();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                                        return cartRepository.save(newCart);
+                                });
 
-        Cart cart = cartRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Cart not found"));
+                return buildCartResponse(cart);
+        }
 
-        CartItem cartItem = cartItemRepository
-                .findByCartIdAndProductId(cart.getId(), productId)
-                .orElseThrow(() -> new IllegalArgumentException("Product not found in cart"));
+        @Transactional
+        public CartResponse updateCartItem(
+                        String email,
+                        Long productId,
+                        Integer quantity) {
 
-        cart.getItems().remove(cartItem);
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        cartItemRepository.delete(cartItem);
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Cart not found"));
 
-        return buildCartResponse(cart);
-    }
+                CartItem cartItem = cartItemRepository
+                                .findByCartIdAndProductId(cart.getId(), productId)
+                                .orElseThrow(() -> new ResourceNotFoundException("Product not found in cart"));
 
-    @Transactional
-    public void clearCart(String email) {
+                Product product = cartItem.getProduct();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+                if (quantity > product.getStock()) {
+                        throw new InsufficientStockException(
+                                        "Requested quantity exceeds available stock");
+                }
 
-        Cart cart = cartRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new IllegalArgumentException("Cart not found"));
+                cartItem.setQuantity(quantity);
 
-        cart.getItems().clear();
+                cartItemRepository.save(cartItem);
 
-        cartRepository.save(cart);
-    }
+                return buildCartResponse(cart);
+        }
+
+        @Transactional
+        public CartResponse removeCartItem(
+                        String email,
+                        Long productId) {
+
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Cart not found"));
+
+                CartItem cartItem = cartItemRepository
+                                .findByCartIdAndProductId(cart.getId(), productId)
+                                .orElseThrow(() -> new ResourceNotFoundException("Product not found in cart"));
+
+                cart.getItems().remove(cartItem);
+
+                cartItemRepository.delete(cartItem);
+
+                return buildCartResponse(cart);
+        }
+
+        @Transactional
+        public void clearCart(String email) {
+
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Cart not found"));
+
+                cart.getItems().clear();
+
+                cartRepository.save(cart);
+        }
+
+        @Transactional
+        public CartResponse applyCoupon(
+                        String email,
+                        ApplyCouponRequest request) {
+
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Cart not found"));
+
+                if (cart.getItems().isEmpty()) {
+                        throw new InvalidCouponException(
+                                        "Cannot apply coupon to an empty cart");
+                }
+
+                // Calculate cart amount after product discounts
+                BigDecimal discountedCartAmount = BigDecimal.ZERO;
+
+                for (CartItem item : cart.getItems()) {
+
+                        Product product = item.getProduct();
+
+                        ProductDiscountResult discountResult = discountService.getBestDiscount(
+                                        product.getId(),
+                                        product.getPrice(),
+                                        item.getQuantity());
+
+                        discountedCartAmount = discountedCartAmount
+                                        .add(discountResult.getFinalAmount());
+                }
+
+                // Validate coupon against discounted cart amount
+                Coupon coupon = couponService.getValidCoupon(
+                                request.getCode(),
+                                discountedCartAmount);
+
+                // Attach coupon to cart
+                cart.setCoupon(coupon);
+
+                cartRepository.save(cart);
+
+                return buildCartResponse(cart);
+        }
+
+        @Transactional
+        public CartResponse removeCoupon(String email) {
+
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+                Cart cart = cartRepository.findByUserId(user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Cart not found"));
+
+                if (cart.getCoupon() == null) {
+                        throw new InvalidCouponException(
+                                        "No coupon is applied to this cart");
+                }
+
+                cart.setCoupon(null);
+
+                cartRepository.save(cart);
+
+                return buildCartResponse(cart);
+        }
 
 }
