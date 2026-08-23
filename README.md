@@ -763,7 +763,7 @@ mvn clean test
 Based on the latest completed test run:
 
 ```text
-Tests run: 109
+Tests run: 146
 Failures: 0
 Errors: 0
 Skipped: 0

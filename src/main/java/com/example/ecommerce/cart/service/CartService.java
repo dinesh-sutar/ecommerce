@@ -118,11 +118,9 @@ public class CartService {
                                         Product product = item.getProduct();
 
                                         BigDecimal subtotal = product.getPrice()
-                                                        .multiply(
-                                                                        BigDecimal.valueOf(
-                                                                                        item.getQuantity()));
+                                                        .multiply(BigDecimal.valueOf(item.getQuantity()));
 
-                                        // Find best applicable product discount
+                                        // Find the best applicable product-level discount
                                         ProductDiscountResult discountResult = discountService.getBestDiscount(
                                                         product.getId(),
                                                         product.getPrice(),
@@ -137,66 +135,55 @@ public class CartService {
                                                         .subtotal(subtotal)
                                                         .discountId(discountResult.getDiscountId())
                                                         .discountCode(discountResult.getDiscountCode())
-                                                        .discountAmount(
-                                                                        discountResult.getDiscountAmount())
-                                                        .totalPrice(
-                                                                        discountResult.getFinalAmount())
+                                                        .discountAmount(discountResult.getDiscountAmount())
+                                                        .totalPrice(discountResult.getFinalAmount())
                                                         .build();
                                 })
                                 .toList();
 
-                // Original cart subtotal before product discounts
+                // Original cart subtotal before product-level discounts
                 BigDecimal subtotal = items.stream()
                                 .map(CartItemResponse::getSubtotal)
-                                .reduce(
-                                                BigDecimal.ZERO,
-                                                BigDecimal::add);
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                // Total product-level discount
+                // Total discount applied across all products
                 BigDecimal discountAmount = items.stream()
                                 .map(CartItemResponse::getDiscountAmount)
-                                .reduce(
-                                                BigDecimal.ZERO,
-                                                BigDecimal::add);
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                // Cart amount after product discounts
-                BigDecimal amountAfterDiscount = items.stream()
-                                .map(CartItemResponse::getTotalPrice)
-                                .reduce(
-                                                BigDecimal.ZERO,
-                                                BigDecimal::add);
+                // Subtotal after product-level discounts
+                BigDecimal amountAfterProductDiscount = subtotal
+                                .subtract(discountAmount);
 
                 String couponCode = null;
                 BigDecimal couponDiscount = BigDecimal.ZERO;
 
-                // Apply coupon if one is attached to the cart
+                // Apply coupon after product-level discounts
                 if (cart.getCoupon() != null) {
 
                         Coupon coupon = cart.getCoupon();
 
-                        // Revalidate the coupon every time the cart is calculated.
-                        // If the coupon has expired or become inactive,
-                        // the user should not receive the discount.
                         try {
                                 Coupon validCoupon = couponService.getValidCoupon(
                                                 coupon.getCode(),
-                                                amountAfterDiscount);
+                                                amountAfterProductDiscount);
 
                                 couponCode = validCoupon.getCode();
 
                                 couponDiscount = couponService.calculateCouponDiscount(
                                                 validCoupon,
-                                                amountAfterDiscount);
+                                                amountAfterProductDiscount);
 
                         } catch (InvalidCouponException ex) {
 
-                                // Automatically remove an invalid/expired coupon from the cart.
+                                // Remove invalid or expired coupon from the cart
                                 cart.setCoupon(null);
                                 cartRepository.save(cart);
                         }
                 }
 
-                BigDecimal totalAmount = amountAfterDiscount
+                // Final amount after all discounts
+                BigDecimal totalAmount = amountAfterProductDiscount
                                 .subtract(couponDiscount);
 
                 return CartResponse.builder()
