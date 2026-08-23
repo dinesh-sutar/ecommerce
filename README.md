@@ -835,9 +835,9 @@ The server calculates:
 
 ```text
 Product Price
-+
+-
 Product Discount
-+
+-
 Coupon Discount
 =
 Final Order Amount
