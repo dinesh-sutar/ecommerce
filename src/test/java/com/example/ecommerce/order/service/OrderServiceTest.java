@@ -1,5 +1,7 @@
 package com.example.ecommerce.order.service;
 
+import com.example.ecommerce.address.entity.UserAddress;
+import com.example.ecommerce.address.repository.AddressRepository;
 import com.example.ecommerce.cart.entity.Cart;
 import com.example.ecommerce.cart.entity.CartItem;
 import com.example.ecommerce.cart.repository.CartRepository;
@@ -16,6 +18,7 @@ import com.example.ecommerce.order.entity.Order;
 import com.example.ecommerce.order.enums.OrderStatus;
 import com.example.ecommerce.order.enums.PaymentMethod;
 import com.example.ecommerce.order.enums.PaymentStatus;
+import com.example.ecommerce.order.enums.ShippingType;
 import com.example.ecommerce.order.repository.OrderRepository;
 import com.example.ecommerce.product.entity.Product;
 import com.example.ecommerce.product.repository.ProductRepository;
@@ -42,814 +45,927 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
-    @Mock
-    private OrderRepository orderRepository;
+        @Mock
+        private OrderRepository orderRepository;
+
+        @Mock
+        private CartRepository cartRepository;
+
+        @Mock
+        private UserRepository userRepository;
+
+        @Mock
+        private ProductRepository productRepository;
+
+        @Mock
+        private DiscountService discountService;
+
+        @Mock
+        private CouponService couponService;
+
+        @Mock
+        private AddressRepository addressRepository;
+
+        @InjectMocks
+        private OrderService orderService;
+
+        private User user;
+        private Product product;
+        private Cart cart;
+        private CartItem cartItem;
+        private UserAddress address;
+        private CheckoutRequest checkoutRequest;
+
+        private final String EMAIL = "test@example.com";
+
+        @BeforeEach
+        void setUp() {
+
+                user = User.builder()
+                                .id(1L)
+                                .email(EMAIL)
+                                .build();
+
+                address = UserAddress.builder()
+                                .id(1L)
+                                .user(user)
+                                .fullName("Test User")
+                                .phoneNumber("9876543210")
+                                .addressLine1("Test Street")
+                                .addressLine2("Near Test Location")
+                                .city("Brahmapur")
+                                .state("Odisha")
+                                .postalCode("760001")
+                                .country("India")
+                                .isDefault(true)
+                                .build();
+
+                product = Product.builder()
+                                .id(1L)
+                                .name("Laptop")
+                                .description("Test Laptop")
+                                .sku("LAP-001")
+                                .price(new BigDecimal("1000.00"))
+                                .stock(10)
+                                .category("Electronics")
+                                .active(true)
+                                .build();
+
+                cart = Cart.builder()
+                                .id(1L)
+                                .user(user)
+                                .items(new ArrayList<>())
+                                .build();
+
+                cartItem = CartItem.builder()
+                                .id(1L)
+                                .cart(cart)
+                                .product(product)
+                                .quantity(2)
+                                .build();
+
+                cart.getItems().add(cartItem);
+
+                checkoutRequest = new CheckoutRequest(
+                                PaymentMethod.COD,
+                                1L,
+                                ShippingType.STANDARD);
+        }
+
+        // =========================================================
+        // SUCCESSFUL CHECKOUT
+        // =========================================================
+
+        @Test
+        void checkout_ShouldCreateOrderSuccessfully() {
+
+                ProductDiscountResult discountResult = createDiscountResult(
+                                new BigDecimal("100.00"),
+                                new BigDecimal("1900.00"));
+
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
+
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-    @Mock
-    private CartRepository cartRepository;
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-    @Mock
-    private UserRepository userRepository;
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-    @Mock
-    private ProductRepository productRepository;
+                when(discountService.getBestDiscount(
+                                eq(product.getId()),
+                                eq(product.getPrice()),
+                                eq(cartItem.getQuantity())))
+                                .thenReturn(discountResult);
 
-    @Mock
-    private DiscountService discountService;
+                when(orderRepository.save(any(Order.class)))
+                                .thenAnswer(invocation -> {
 
-    @Mock
-    private CouponService couponService;
+                                        Order order = invocation.getArgument(0);
+                                        order.setId(100L);
 
-    @InjectMocks
-    private OrderService orderService;
+                                        return order;
+                                });
 
-    private User user;
-    private Product product;
-    private Cart cart;
-    private CartItem cartItem;
-    private CheckoutRequest checkoutRequest;
+                OrderResponse response = orderService.checkout(EMAIL, checkoutRequest);
 
-    private final String EMAIL = "test@example.com";
+                assertNotNull(response);
 
-    @BeforeEach
-    void setUp() {
+                assertEquals(100L, response.getOrderId());
 
-        user = User.builder()
-                .id(1L)
-                .email(EMAIL)
-                .build();
+                assertEquals(
+                                0,
+                                new BigDecimal("2000.00")
+                                                .compareTo(response.getSubtotal()));
 
-        product = Product.builder()
-                .id(1L)
-                .name("Laptop")
-                .description("Test Laptop")
-                .sku("LAP-001")
-                .price(new BigDecimal("1000.00"))
-                .stock(10)
-                .category("Electronics")
-                .active(true)
-                .build();
+                assertEquals(
+                                0,
+                                new BigDecimal("100.00")
+                                                .compareTo(response.getDiscountAmount()));
 
-        cart = Cart.builder()
-                .id(1L)
-                .user(user)
-                .items(new ArrayList<>())
-                .build();
+                assertEquals(
+                                0,
+                                BigDecimal.ZERO
+                                                .compareTo(response.getCouponDiscount()));
 
-        cartItem = CartItem.builder()
-                .id(1L)
-                .cart(cart)
-                .product(product)
-                .quantity(2)
-                .build();
+                assertEquals(
+                                ShippingType.STANDARD,
+                                response.getShippingType());
 
-        cart.getItems().add(cartItem);
+                assertEquals(
+                                0,
+                                new BigDecimal("50.00")
+                                                .compareTo(response.getShippingCost()));
 
-        checkoutRequest = new CheckoutRequest(PaymentMethod.COD);
-    }
+                // 2000 - 100 + 50 = 1950
+                assertEquals(
+                                0,
+                                new BigDecimal("1950.00")
+                                                .compareTo(response.getTotalAmount()));
 
-    // =========================================================
-    // SUCCESSFUL CHECKOUT
-    // =========================================================
+                assertEquals(
+                                PaymentMethod.COD,
+                                response.getPaymentMethod());
 
-    @Test
-    void checkout_ShouldCreateOrderSuccessfully() {
+                assertEquals(
+                                PaymentStatus.PENDING,
+                                response.getPaymentStatus());
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                new BigDecimal("100.00"),
-                new BigDecimal("1900.00"));
+                assertEquals(
+                                OrderStatus.CREATED,
+                                response.getStatus());
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                assertEquals(1, response.getItems().size());
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                // Stock: 10 - 2 = 8
+                assertEquals(8, product.getStock());
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                // Cart should be cleared
+                assertTrue(cart.getItems().isEmpty());
 
-        when(discountService.getBestDiscount(
-                eq(product.getId()),
-                eq(product.getPrice()),
-                eq(cartItem.getQuantity())))
-                .thenReturn(discountResult);
+                verify(orderRepository).save(any(Order.class));
+        }
 
-        when(orderRepository.save(any(Order.class)))
-                .thenAnswer(invocation -> {
+        // =========================================================
+        // USER NOT FOUND
+        // =========================================================
 
-                    Order order = invocation.getArgument(0);
-                    order.setId(100L);
+        @Test
+        void checkout_ShouldThrowException_WhenUserNotFound() {
 
-                    return order;
-                });
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.empty());
 
-        OrderResponse response = orderService.checkout(EMAIL, checkoutRequest);
+                ResourceNotFoundException exception = assertThrows(
+                                ResourceNotFoundException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-        assertNotNull(response);
+                assertEquals(
+                                "User not found",
+                                exception.getMessage());
 
-        assertEquals(100L, response.getOrderId());
+                verify(addressRepository, never())
+                                .findByIdAndUserId(anyLong(), anyLong());
 
-        assertEquals(
-                0,
-                new BigDecimal("2000.00")
-                        .compareTo(response.getSubtotal()));
+                verify(cartRepository, never())
+                                .findByUserId(anyLong());
 
-        assertEquals(
-                0,
-                new BigDecimal("100.00")
-                        .compareTo(response.getDiscountAmount()));
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-        assertEquals(
-                0,
-                BigDecimal.ZERO
-                        .compareTo(response.getCouponDiscount()));
+        // =========================================================
+        // ADDRESS NOT FOUND
+        // =========================================================
 
-        assertEquals(
-                0,
-                new BigDecimal("1900.00")
-                        .compareTo(response.getTotalAmount()));
+        @Test
+        void checkout_ShouldThrowException_WhenAddressNotFound() {
 
-        assertEquals(
-                PaymentMethod.COD,
-                response.getPaymentMethod());
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        assertEquals(
-                PaymentStatus.PENDING,
-                response.getPaymentStatus());
+                when(addressRepository.findByIdAndUserId(
+                                checkoutRequest.getAddressId(),
+                                user.getId()))
+                                .thenReturn(Optional.empty());
 
-        assertEquals(
-                OrderStatus.CREATED,
-                response.getStatus());
+                ResourceNotFoundException exception = assertThrows(
+                                ResourceNotFoundException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-        assertEquals(1, response.getItems().size());
+                assertEquals(
+                                "Address not found",
+                                exception.getMessage());
 
-        // Stock: 10 - 2 = 8
-        assertEquals(8, product.getStock());
+                verify(cartRepository, never())
+                                .findByUserId(anyLong());
 
-        // Cart should be cleared
-        assertTrue(cart.getItems().isEmpty());
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-        verify(orderRepository).save(any(Order.class));
-    }
+        // =========================================================
+        // CART NOT FOUND
+        // =========================================================
 
-    // =========================================================
-    // USER NOT FOUND
-    // =========================================================
+        @Test
+        void checkout_ShouldThrowException_WhenCartNotFound() {
 
-    @Test
-    void checkout_ShouldThrowException_WhenUserNotFound() {
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.empty());
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        ResourceNotFoundException exception = assertThrows(
-                ResourceNotFoundException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.empty());
 
-        assertEquals(
-                "User not found",
-                exception.getMessage());
+                ResourceNotFoundException exception = assertThrows(
+                                ResourceNotFoundException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-        verify(cartRepository, never())
-                .findByUserId(anyLong());
+                assertEquals(
+                                "Cart not found",
+                                exception.getMessage());
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-    // =========================================================
-    // CART NOT FOUND
-    // =========================================================
+        // =========================================================
+        // EMPTY CART
+        // =========================================================
 
-    @Test
-    void checkout_ShouldThrowException_WhenCartNotFound() {
+        @Test
+        void checkout_ShouldThrowException_WhenCartIsEmpty() {
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                cart.setItems(new ArrayList<>());
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.empty());
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        ResourceNotFoundException exception = assertThrows(
-                ResourceNotFoundException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        assertEquals(
-                "Cart not found",
-                exception.getMessage());
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                IllegalArgumentException exception = assertThrows(
+                                IllegalArgumentException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-    // =========================================================
-    // EMPTY CART
-    // =========================================================
+                assertEquals(
+                                "Cannot checkout with an empty cart",
+                                exception.getMessage());
 
-    @Test
-    void checkout_ShouldThrowException_WhenCartIsEmpty() {
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-        cart.setItems(new ArrayList<>());
+        // =========================================================
+        // PRODUCT NOT FOUND
+        // =========================================================
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+        @Test
+        void checkout_ShouldThrowException_WhenProductNotFound() {
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        assertEquals(
-                "Cannot checkout with an empty cart",
-                exception.getMessage());
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.empty());
 
-    // =========================================================
-    // PRODUCT NOT FOUND
-    // =========================================================
+                assertThrows(
+                                ResourceNotFoundException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-    @Test
-    void checkout_ShouldThrowException_WhenProductNotFound() {
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+        // =========================================================
+        // INACTIVE PRODUCT
+        // =========================================================
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+        @Test
+        void checkout_ShouldThrowException_WhenProductIsInactive() {
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.empty());
+                product.setActive(false);
 
-        assertThrows(
-                ResourceNotFoundException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-    // =========================================================
-    // INACTIVE PRODUCT
-    // =========================================================
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-    @Test
-    void checkout_ShouldThrowException_WhenProductIsInactive() {
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-        product.setActive(false);
+                IllegalArgumentException exception = assertThrows(
+                                IllegalArgumentException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                assertEquals(
+                                "Product is inactive: Laptop",
+                                exception.getMessage());
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+        // =========================================================
+        // INSUFFICIENT STOCK
+        // =========================================================
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+        @Test
+        void checkout_ShouldThrowException_WhenStockIsInsufficient() {
 
-        assertEquals(
-                "Product is inactive: Laptop",
-                exception.getMessage());
+                product.setStock(1);
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-    // =========================================================
-    // INSUFFICIENT STOCK
-    // =========================================================
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-    @Test
-    void checkout_ShouldThrowException_WhenStockIsInsufficient() {
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        product.setStock(1);
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                assertThrows(
+                                InsufficientStockException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+        // =========================================================
+        // CHECKOUT WITH COUPON
+        // =========================================================
 
-        assertThrows(
-                InsufficientStockException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+        @Test
+        void checkout_ShouldApplyCouponDiscount() {
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                Coupon coupon = Coupon.builder()
+                                .id(1L)
+                                .code("SAVE100")
+                                .active(true)
+                                .expiryDate(
+                                                LocalDateTime.now().plusDays(5))
+                                .build();
 
-    // =========================================================
-    // CHECKOUT WITH COUPON
-    // =========================================================
+                cart.setCoupon(coupon);
 
-    @Test
-    void checkout_ShouldApplyCouponDiscount() {
+                ProductDiscountResult discountResult = createDiscountResult(
+                                BigDecimal.ZERO,
+                                new BigDecimal("2000.00"));
 
-        Coupon coupon = Coupon.builder()
-                .id(1L)
-                .code("SAVE100")
-                .active(true)
-                .expiryDate(
-                        LocalDateTime.now().plusDays(5))
-                .build();
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        cart.setCoupon(coupon);
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                BigDecimal.ZERO,
-                new BigDecimal("2000.00"));
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                when(discountService.getBestDiscount(
+                                anyLong(),
+                                any(BigDecimal.class),
+                                anyInt()))
+                                .thenReturn(discountResult);
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                when(couponService.getValidCoupon(
+                                eq("SAVE100"),
+                                eq(new BigDecimal("2000.00"))))
+                                .thenReturn(coupon);
 
-        when(discountService.getBestDiscount(
-                anyLong(),
-                any(BigDecimal.class),
-                anyInt()))
-                .thenReturn(discountResult);
+                when(couponService.calculateCouponDiscount(
+                                eq(coupon),
+                                eq(new BigDecimal("2000.00"))))
+                                .thenReturn(new BigDecimal("100.00"));
 
-        when(couponService.getValidCoupon(
-                eq("SAVE100"),
-                eq(new BigDecimal("2000.00"))))
-                .thenReturn(coupon);
+                when(orderRepository.save(any(Order.class)))
+                                .thenAnswer(invocation -> {
 
-        when(couponService.calculateCouponDiscount(
-                eq(coupon),
-                eq(new BigDecimal("2000.00"))))
-                .thenReturn(new BigDecimal("100.00"));
+                                        Order order = invocation.getArgument(0);
+                                        order.setId(100L);
 
-        when(orderRepository.save(any(Order.class)))
-                .thenAnswer(invocation -> {
+                                        return order;
+                                });
 
-                    Order order = invocation.getArgument(0);
-                    order.setId(100L);
+                OrderResponse response = orderService.checkout(EMAIL, checkoutRequest);
 
-                    return order;
-                });
+                assertEquals(
+                                0,
+                                new BigDecimal("100.00")
+                                                .compareTo(response.getCouponDiscount()));
 
-        OrderResponse response = orderService.checkout(EMAIL, checkoutRequest);
+                assertEquals(
+                                0,
+                                new BigDecimal("50.00")
+                                                .compareTo(response.getShippingCost()));
 
-        assertEquals(
-                0,
-                new BigDecimal("100.00")
-                        .compareTo(response.getCouponDiscount()));
+                // 2000 - 100 coupon + 50 shipping = 1950
+                assertEquals(
+                                0,
+                                new BigDecimal("1950.00")
+                                                .compareTo(response.getTotalAmount()));
 
-        assertEquals(
-                0,
-                new BigDecimal("1900.00")
-                        .compareTo(response.getTotalAmount()));
+                // Coupon should be removed after checkout
+                assertNull(cart.getCoupon());
 
-        // Coupon should be removed after checkout
-        assertNull(cart.getCoupon());
+                assertTrue(cart.getItems().isEmpty());
+        }
 
-        assertTrue(cart.getItems().isEmpty());
-    }
+        // =========================================================
+        // INVALID COUPON DURING CHECKOUT
+        // =========================================================
 
-    // =========================================================
-    // INVALID COUPON DURING CHECKOUT
-    // =========================================================
+        @Test
+        void checkout_ShouldThrowException_WhenCouponBecomesInvalid() {
 
-    @Test
-    void checkout_ShouldThrowException_WhenCouponBecomesInvalid() {
+                Coupon coupon = Coupon.builder()
+                                .id(1L)
+                                .code("EXPIRED")
+                                .active(true)
+                                .build();
 
-        Coupon coupon = Coupon.builder()
-                .id(1L)
-                .code("EXPIRED")
-                .active(true)
-                .build();
+                cart.setCoupon(coupon);
 
-        cart.setCoupon(coupon);
+                ProductDiscountResult discountResult = createDiscountResult(
+                                BigDecimal.ZERO,
+                                new BigDecimal("2000.00"));
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                BigDecimal.ZERO,
-                new BigDecimal("2000.00"));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-        when(discountService.getBestDiscount(
-                anyLong(),
-                any(BigDecimal.class),
-                anyInt()))
-                .thenReturn(discountResult);
+                when(discountService.getBestDiscount(
+                                anyLong(),
+                                any(BigDecimal.class),
+                                anyInt()))
+                                .thenReturn(discountResult);
 
-        when(couponService.getValidCoupon(
-                anyString(),
-                any(BigDecimal.class)))
-                .thenThrow(
-                        new InvalidCouponException(
-                                "Coupon has expired"));
+                when(couponService.getValidCoupon(
+                                anyString(),
+                                any(BigDecimal.class)))
+                                .thenThrow(
+                                                new InvalidCouponException(
+                                                                "Coupon has expired"));
 
-        assertThrows(
-                InvalidCouponException.class,
-                () -> orderService.checkout(
-                        EMAIL,
-                        checkoutRequest));
+                assertThrows(
+                                InvalidCouponException.class,
+                                () -> orderService.checkout(
+                                                EMAIL,
+                                                checkoutRequest));
 
-        // Cart should not be cleared because checkout failed
-        assertFalse(cart.getItems().isEmpty());
+                // Cart should not be cleared because checkout failed
+                assertFalse(cart.getItems().isEmpty());
 
-        verify(orderRepository, never())
-                .save(any());
-    }
+                verify(orderRepository, never())
+                                .save(any());
+        }
 
-    // =========================================================
-    // PRODUCT DISCOUNT CALCULATION
-    // =========================================================
+        // =========================================================
+        // PRODUCT DISCOUNT CALCULATION
+        // =========================================================
 
-    @Test
-    void checkout_ShouldCalculateCorrectProductDiscount() {
+        @Test
+        void checkout_ShouldCalculateCorrectProductDiscount() {
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                new BigDecimal("400.00"),
-                new BigDecimal("1600.00"));
+                ProductDiscountResult discountResult = createDiscountResult(
+                                new BigDecimal("400.00"),
+                                new BigDecimal("1600.00"));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        when(discountService.getBestDiscount(
-                anyLong(),
-                any(BigDecimal.class),
-                anyInt()))
-                .thenReturn(discountResult);
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-        when(orderRepository.save(any(Order.class)))
-                .thenAnswer(invocation -> {
+                when(discountService.getBestDiscount(
+                                anyLong(),
+                                any(BigDecimal.class),
+                                anyInt()))
+                                .thenReturn(discountResult);
 
-                    Order order = invocation.getArgument(0);
-                    order.setId(100L);
+                when(orderRepository.save(any(Order.class)))
+                                .thenAnswer(invocation -> {
 
-                    return order;
-                });
+                                        Order order = invocation.getArgument(0);
+                                        order.setId(100L);
 
-        OrderResponse response = orderService.checkout(EMAIL, checkoutRequest);
+                                        return order;
+                                });
 
-        assertEquals(
-                0,
-                new BigDecimal("2000.00")
-                        .compareTo(response.getSubtotal()));
+                OrderResponse response = orderService.checkout(EMAIL, checkoutRequest);
 
-        assertEquals(
-                0,
-                new BigDecimal("400.00")
-                        .compareTo(response.getDiscountAmount()));
+                assertEquals(
+                                0,
+                                new BigDecimal("2000.00")
+                                                .compareTo(response.getSubtotal()));
 
-        assertEquals(
-                0,
-                new BigDecimal("1600.00")
-                        .compareTo(response.getTotalAmount()));
-    }
+                assertEquals(
+                                0,
+                                new BigDecimal("400.00")
+                                                .compareTo(response.getDiscountAmount()));
 
-    // =========================================================
-    // INVENTORY REDUCTION
-    // =========================================================
+                // 2000 - 400 + 50 = 1650
+                assertEquals(
+                                0,
+                                new BigDecimal("1650.00")
+                                                .compareTo(response.getTotalAmount()));
+        }
 
-    @Test
-    void checkout_ShouldReduceInventory() {
+        // =========================================================
+        // INVENTORY REDUCTION
+        // =========================================================
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                BigDecimal.ZERO,
-                new BigDecimal("2000.00"));
+        @Test
+        void checkout_ShouldReduceInventory() {
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                ProductDiscountResult discountResult = createDiscountResult(
+                                BigDecimal.ZERO,
+                                new BigDecimal("2000.00"));
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        /*
-         * OrderService calls findById twice:
-         *
-         * 1. Product validation and pricing
-         * 2. Inventory reduction
-         */
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        when(discountService.getBestDiscount(
-                anyLong(),
-                any(BigDecimal.class),
-                anyInt()))
-                .thenReturn(discountResult);
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-        when(orderRepository.save(any(Order.class)))
-                .thenAnswer(invocation -> {
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-                    Order order = invocation.getArgument(0);
-                    order.setId(100L);
+                when(discountService.getBestDiscount(
+                                anyLong(),
+                                any(BigDecimal.class),
+                                anyInt()))
+                                .thenReturn(discountResult);
 
-                    return order;
-                });
+                when(orderRepository.save(any(Order.class)))
+                                .thenAnswer(invocation -> {
 
-        orderService.checkout(EMAIL, checkoutRequest);
+                                        Order order = invocation.getArgument(0);
+                                        order.setId(100L);
 
-        assertEquals(
-                8,
-                product.getStock());
+                                        return order;
+                                });
 
-        verify(productRepository, times(2))
-                .findById(product.getId());
-    }
+                orderService.checkout(EMAIL, checkoutRequest);
 
-    // =========================================================
-    // CART CLEARED AFTER SUCCESSFUL CHECKOUT
-    // =========================================================
+                assertEquals(
+                                8,
+                                product.getStock());
 
-    @Test
-    void checkout_ShouldClearCartAfterSuccessfulCheckout() {
+                verify(productRepository, times(2))
+                                .findById(product.getId());
+        }
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                BigDecimal.ZERO,
-                new BigDecimal("2000.00"));
+        // =========================================================
+        // CART CLEARED AFTER SUCCESSFUL CHECKOUT
+        // =========================================================
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+        @Test
+        void checkout_ShouldClearCartAfterSuccessfulCheckout() {
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+                ProductDiscountResult discountResult = createDiscountResult(
+                                BigDecimal.ZERO,
+                                new BigDecimal("2000.00"));
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        when(discountService.getBestDiscount(
-                anyLong(),
-                any(BigDecimal.class),
-                anyInt()))
-                .thenReturn(discountResult);
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        when(orderRepository.save(any(Order.class)))
-                .thenAnswer(invocation -> {
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-                    Order order = invocation.getArgument(0);
-                    order.setId(100L);
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-                    return order;
-                });
+                when(discountService.getBestDiscount(
+                                anyLong(),
+                                any(BigDecimal.class),
+                                anyInt()))
+                                .thenReturn(discountResult);
 
-        orderService.checkout(EMAIL, checkoutRequest);
+                when(orderRepository.save(any(Order.class)))
+                                .thenAnswer(invocation -> {
 
-        assertTrue(cart.getItems().isEmpty());
+                                        Order order = invocation.getArgument(0);
+                                        order.setId(100L);
 
-        assertNull(cart.getCoupon());
-    }
+                                        return order;
+                                });
 
-    // =========================================================
-    // VERIFY ORDER DETAILS
-    // =========================================================
+                orderService.checkout(EMAIL, checkoutRequest);
 
-    @Test
-    void checkout_ShouldCreateCorrectOrderAndOrderItems() {
+                assertTrue(cart.getItems().isEmpty());
 
-        ProductDiscountResult discountResult = createDiscountResult(
-                new BigDecimal("200.00"),
-                new BigDecimal("1800.00"));
+                assertNull(cart.getCoupon());
+        }
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+        // =========================================================
+        // VERIFY ORDER DETAILS
+        // =========================================================
 
-        when(cartRepository.findByUserId(user.getId()))
-                .thenReturn(Optional.of(cart));
+        @Test
+        void checkout_ShouldCreateCorrectOrderAndOrderItems() {
 
-        when(productRepository.findById(product.getId()))
-                .thenReturn(Optional.of(product));
+                ProductDiscountResult discountResult = createDiscountResult(
+                                new BigDecimal("200.00"),
+                                new BigDecimal("1800.00"));
 
-        when(discountService.getBestDiscount(
-                anyLong(),
-                any(BigDecimal.class),
-                anyInt()))
-                .thenReturn(discountResult);
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
+                when(addressRepository.findByIdAndUserId(1L, user.getId()))
+                                .thenReturn(Optional.of(address));
 
-        when(orderRepository.save(any(Order.class)))
-                .thenAnswer(invocation -> {
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
 
-                    Order order = invocation.getArgument(0);
-                    order.setId(100L);
+                when(productRepository.findById(product.getId()))
+                                .thenReturn(Optional.of(product));
 
-                    return order;
-                });
+                when(discountService.getBestDiscount(
+                                anyLong(),
+                                any(BigDecimal.class),
+                                anyInt()))
+                                .thenReturn(discountResult);
 
-        orderService.checkout(EMAIL, checkoutRequest);
+                ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
 
-        verify(orderRepository)
-                .save(orderCaptor.capture());
+                when(orderRepository.save(any(Order.class)))
+                                .thenAnswer(invocation -> {
 
-        Order savedOrder = orderCaptor.getValue();
+                                        Order order = invocation.getArgument(0);
+                                        order.setId(100L);
 
-        assertEquals(user, savedOrder.getUser());
+                                        return order;
+                                });
 
-        assertEquals(
-                0,
-                new BigDecimal("2000.00")
-                        .compareTo(savedOrder.getSubtotal()));
+                orderService.checkout(EMAIL, checkoutRequest);
 
-        assertEquals(
-                0,
-                new BigDecimal("200.00")
-                        .compareTo(savedOrder.getDiscountAmount()));
+                verify(orderRepository)
+                                .save(orderCaptor.capture());
 
-        assertEquals(
-                0,
-                new BigDecimal("1800.00")
-                        .compareTo(savedOrder.getTotalAmount()));
+                Order savedOrder = orderCaptor.getValue();
 
-        assertEquals(
-                PaymentMethod.COD,
-                savedOrder.getPaymentMethod());
+                assertEquals(user, savedOrder.getUser());
 
-        assertEquals(
-                PaymentStatus.PENDING,
-                savedOrder.getPaymentStatus());
+                assertEquals(
+                                address,
+                                savedOrder.getShippingAddress());
 
-        assertEquals(
-                OrderStatus.CREATED,
-                savedOrder.getStatus());
+                assertEquals(
+                                0,
+                                new BigDecimal("2000.00")
+                                                .compareTo(savedOrder.getSubtotal()));
 
-        assertEquals(
-                1,
-                savedOrder.getItems().size());
+                assertEquals(
+                                0,
+                                new BigDecimal("200.00")
+                                                .compareTo(savedOrder.getDiscountAmount()));
 
-        assertEquals(
-                savedOrder,
-                savedOrder.getItems()
-                        .get(0)
-                        .getOrder());
-    }
+                assertEquals(
+                                ShippingType.STANDARD,
+                                savedOrder.getShippingType());
 
-    // =========================================================
-    // GET USER ORDERS
-    // =========================================================
+                assertEquals(
+                                0,
+                                new BigDecimal("50.00")
+                                                .compareTo(savedOrder.getShippingCost()));
 
-    @Test
-    void getUserOrders_ShouldReturnUserOrders() {
+                // 2000 - 200 + 50 = 1850
+                assertEquals(
+                                0,
+                                new BigDecimal("1850.00")
+                                                .compareTo(savedOrder.getTotalAmount()));
 
-        Order order = createOrder(100L);
+                assertEquals(
+                                PaymentMethod.COD,
+                                savedOrder.getPaymentMethod());
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                assertEquals(
+                                PaymentStatus.PENDING,
+                                savedOrder.getPaymentStatus());
 
-        when(orderRepository.findByUserIdOrderByCreatedAtDesc(
-                user.getId()))
-                .thenReturn(List.of(order));
+                assertEquals(
+                                OrderStatus.CREATED,
+                                savedOrder.getStatus());
 
-        List<OrderResponse> responses = orderService.getUserOrders(EMAIL);
+                assertEquals(
+                                1,
+                                savedOrder.getItems().size());
 
-        assertEquals(1, responses.size());
+                assertEquals(
+                                savedOrder,
+                                savedOrder.getItems()
+                                                .get(0)
+                                                .getOrder());
+        }
 
-        assertEquals(
-                100L,
-                responses.get(0).getOrderId());
+        // =========================================================
+        // GET USER ORDERS
+        // =========================================================
 
-        verify(orderRepository)
-                .findByUserIdOrderByCreatedAtDesc(
-                        user.getId());
-    }
+        @Test
+        void getUserOrders_ShouldReturnUserOrders() {
 
-    // =========================================================
-    // GET USER ORDERS - USER NOT FOUND
-    // =========================================================
+                Order order = createOrder(100L);
 
-    @Test
-    void getUserOrders_ShouldThrowException_WhenUserNotFound() {
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.empty());
+                when(orderRepository.findByUserIdOrderByCreatedAtDesc(
+                                user.getId()))
+                                .thenReturn(List.of(order));
 
-        assertThrows(
-                ResourceNotFoundException.class,
-                () -> orderService.getUserOrders(EMAIL));
+                List<OrderResponse> responses = orderService.getUserOrders(EMAIL);
 
-        verify(orderRepository, never())
-                .findByUserIdOrderByCreatedAtDesc(anyLong());
-    }
+                assertEquals(1, responses.size());
 
-    // =========================================================
-    // GET ORDER BY ID
-    // =========================================================
+                assertEquals(
+                                100L,
+                                responses.get(0).getOrderId());
 
-    @Test
-    void getOrderById_ShouldReturnOrder() {
+                verify(orderRepository)
+                                .findByUserIdOrderByCreatedAtDesc(
+                                                user.getId());
+        }
 
-        Order order = createOrder(100L);
+        // =========================================================
+        // GET USER ORDERS - USER NOT FOUND
+        // =========================================================
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+        @Test
+        void getUserOrders_ShouldThrowException_WhenUserNotFound() {
 
-        when(orderRepository.findByIdAndUserId(
-                100L,
-                user.getId()))
-                .thenReturn(Optional.of(order));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.empty());
 
-        OrderResponse response = orderService.getOrderById(
-                EMAIL,
-                100L);
+                assertThrows(
+                                ResourceNotFoundException.class,
+                                () -> orderService.getUserOrders(EMAIL));
 
-        assertNotNull(response);
+                verify(orderRepository, never())
+                                .findByUserIdOrderByCreatedAtDesc(anyLong());
+        }
 
-        assertEquals(
-                100L,
-                response.getOrderId());
-    }
+        // =========================================================
+        // GET ORDER BY ID
+        // =========================================================
 
-    // =========================================================
-    // GET ORDER BY ID - ORDER NOT FOUND
-    // =========================================================
+        @Test
+        void getOrderById_ShouldReturnOrder() {
 
-    @Test
-    void getOrderById_ShouldThrowException_WhenOrderNotFound() {
+                Order order = createOrder(100L);
 
-        when(userRepository.findByEmail(EMAIL))
-                .thenReturn(Optional.of(user));
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        when(orderRepository.findByIdAndUserId(
-                999L,
-                user.getId()))
-                .thenReturn(Optional.empty());
+                when(orderRepository.findByIdAndUserId(
+                                100L,
+                                user.getId()))
+                                .thenReturn(Optional.of(order));
 
-        assertThrows(
-                ResourceNotFoundException.class,
-                () -> orderService.getOrderById(
-                        EMAIL,
-                        999L));
-    }
+                OrderResponse response = orderService.getOrderById(
+                                EMAIL,
+                                100L);
 
-    // =========================================================
-    // HELPER METHODS
-    // =========================================================
+                assertNotNull(response);
 
-    private ProductDiscountResult createDiscountResult(
-            BigDecimal discountAmount,
-            BigDecimal finalAmount) {
+                assertEquals(
+                                100L,
+                                response.getOrderId());
+        }
 
-        /*
-         * If your ProductDiscountResult has additional fields,
-         * adjust this builder according to your DTO.
-         */
+        // =========================================================
+        // GET ORDER BY ID - ORDER NOT FOUND
+        // =========================================================
 
-        return ProductDiscountResult.builder()
-                .discountAmount(discountAmount)
-                .finalAmount(finalAmount)
-                .build();
-    }
+        @Test
+        void getOrderById_ShouldThrowException_WhenOrderNotFound() {
 
-    private Order createOrder(Long orderId) {
+                when(userRepository.findByEmail(EMAIL))
+                                .thenReturn(Optional.of(user));
 
-        Order order = Order.builder()
-                .id(orderId)
-                .user(user)
-                .subtotal(new BigDecimal("2000.00"))
-                .discountAmount(new BigDecimal("100.00"))
-                .couponDiscount(BigDecimal.ZERO)
-                .totalAmount(new BigDecimal("1900.00"))
-                .status(OrderStatus.CREATED)
-                .paymentMethod(PaymentMethod.COD)
-                .paymentStatus(PaymentStatus.PENDING)
-                .createdAt(LocalDateTime.now())
-                .items(new ArrayList<>())
-                .build();
+                when(orderRepository.findByIdAndUserId(
+                                999L,
+                                user.getId()))
+                                .thenReturn(Optional.empty());
 
-        return order;
-    }
+                assertThrows(
+                                ResourceNotFoundException.class,
+                                () -> orderService.getOrderById(
+                                                EMAIL,
+                                                999L));
+        }
+
+        // =========================================================
+        // HELPER METHODS
+        // =========================================================
+
+        private ProductDiscountResult createDiscountResult(
+                        BigDecimal discountAmount,
+                        BigDecimal finalAmount) {
+
+                return ProductDiscountResult.builder()
+                                .discountAmount(discountAmount)
+                                .finalAmount(finalAmount)
+                                .build();
+        }
+
+        private Order createOrder(Long orderId) {
+
+                return Order.builder()
+                                .id(orderId)
+                                .user(user)
+                                .shippingAddress(address)
+                                .subtotal(new BigDecimal("2000.00"))
+                                .discountAmount(new BigDecimal("100.00"))
+                                .couponDiscount(BigDecimal.ZERO)
+                                .shippingType(ShippingType.STANDARD)
+                                .shippingCost(new BigDecimal("50.00"))
+                                .totalAmount(new BigDecimal("1950.00"))
+                                .status(OrderStatus.CREATED)
+                                .paymentMethod(PaymentMethod.COD)
+                                .paymentStatus(PaymentStatus.PENDING)
+                                .createdAt(LocalDateTime.now())
+                                .items(new ArrayList<>())
+                                .build();
+        }
 }

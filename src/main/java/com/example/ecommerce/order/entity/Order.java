@@ -1,8 +1,10 @@
 package com.example.ecommerce.order.entity;
 
+import com.example.ecommerce.address.entity.UserAddress;
 import com.example.ecommerce.order.enums.OrderStatus;
 import com.example.ecommerce.order.enums.PaymentMethod;
 import com.example.ecommerce.order.enums.PaymentStatus;
+import com.example.ecommerce.order.enums.ShippingType;
 import com.example.ecommerce.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
@@ -62,6 +64,17 @@ public class Order {
     @Column(nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private ShippingType shippingType;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal shippingCost;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "address_id", nullable = false)
+    private UserAddress shippingAddress;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
