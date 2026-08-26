@@ -269,6 +269,9 @@ class OrderServiceTest {
                 when(userRepository.findByEmail(EMAIL))
                                 .thenReturn(Optional.of(user));
 
+                when(cartRepository.findByUserId(user.getId()))
+                                .thenReturn(Optional.of(cart));
+
                 when(addressRepository.findByIdAndUserId(
                                 checkoutRequest.getAddressId(),
                                 user.getId()))
@@ -284,9 +287,6 @@ class OrderServiceTest {
                                 "Address not found",
                                 exception.getMessage());
 
-                verify(cartRepository, never())
-                                .findByUserId(anyLong());
-
                 verify(orderRepository, never())
                                 .save(any());
         }
@@ -301,9 +301,6 @@ class OrderServiceTest {
                 when(userRepository.findByEmail(EMAIL))
                                 .thenReturn(Optional.of(user));
 
-                when(addressRepository.findByIdAndUserId(1L, user.getId()))
-                                .thenReturn(Optional.of(address));
-
                 when(cartRepository.findByUserId(user.getId()))
                                 .thenReturn(Optional.empty());
 
@@ -316,6 +313,9 @@ class OrderServiceTest {
                 assertEquals(
                                 "Cart not found",
                                 exception.getMessage());
+
+                verify(addressRepository, never())
+                                .findByIdAndUserId(anyLong(), anyLong());
 
                 verify(orderRepository, never())
                                 .save(any());

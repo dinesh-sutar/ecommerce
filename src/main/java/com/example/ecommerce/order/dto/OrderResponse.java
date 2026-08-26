@@ -1,5 +1,6 @@
 package com.example.ecommerce.order.dto;
 
+import com.example.ecommerce.address.dto.AddressResponse;
 import com.example.ecommerce.order.enums.OrderStatus;
 import com.example.ecommerce.order.enums.PaymentMethod;
 import com.example.ecommerce.order.enums.PaymentStatus;
@@ -25,10 +26,10 @@ public class OrderResponse {
     // Total product-level discount
     private BigDecimal discountAmount;
 
-    // Coupon discount
     private BigDecimal couponDiscount;
 
-    // Shipping information
+    private AddressResponse shippingAddress;
+
     private ShippingType shippingType;
 
     private BigDecimal shippingCost;

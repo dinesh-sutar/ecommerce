@@ -1,5 +1,6 @@
 package com.example.ecommerce.order.service;
 
+import com.example.ecommerce.address.dto.AddressResponse;
 import com.example.ecommerce.address.entity.UserAddress;
 import com.example.ecommerce.address.repository.AddressRepository;
 import com.example.ecommerce.cart.entity.Cart;
@@ -240,23 +241,36 @@ public class OrderService {
                 List<OrderItemResponse> itemResponses = order.getItems()
                                 .stream()
                                 .map(item -> OrderItemResponse.builder()
-                                                .productId(
-                                                                item.getProduct().getId())
-                                                .productName(
-                                                                item.getProductName())
+                                                .productId(item.getProduct().getId())
+                                                .productName(item.getProductName())
                                                 .sku(item.getSku())
-                                                .unitPrice(
-                                                                item.getUnitPrice())
-                                                .quantity(
-                                                                item.getQuantity())
-                                                .subtotal(
-                                                                item.getSubtotal())
-                                                .discountAmount(
-                                                                item.getDiscountAmount())
-                                                .totalPrice(
-                                                                item.getTotalPrice())
+                                                .unitPrice(item.getUnitPrice())
+                                                .quantity(item.getQuantity())
+                                                .subtotal(item.getSubtotal())
+                                                .discountAmount(item.getDiscountAmount())
+                                                .totalPrice(item.getTotalPrice())
                                                 .build())
                                 .toList();
+
+                AddressResponse shippingAddressResponse = null;
+
+                if (order.getShippingAddress() != null) {
+
+                        UserAddress address = order.getShippingAddress();
+
+                        shippingAddressResponse = AddressResponse.builder()
+                                        .id(address.getId())
+                                        .fullName(address.getFullName())
+                                        .phoneNumber(address.getPhoneNumber())
+                                        .addressLine1(address.getAddressLine1())
+                                        .addressLine2(address.getAddressLine2())
+                                        .city(address.getCity())
+                                        .state(address.getState())
+                                        .postalCode(address.getPostalCode())
+                                        .country(address.getCountry())
+                                        .isDefault(address.getIsDefault())
+                                        .build();
+                }
 
                 return OrderResponse.builder()
                                 .orderId(order.getId())
@@ -264,6 +278,9 @@ public class OrderService {
                                 .subtotal(order.getSubtotal())
                                 .discountAmount(order.getDiscountAmount())
                                 .couponDiscount(order.getCouponDiscount())
+
+                                .shippingAddress(shippingAddressResponse)
+
                                 .shippingType(order.getShippingType())
                                 .shippingCost(order.getShippingCost())
                                 .totalAmount(order.getTotalAmount())
@@ -315,5 +332,116 @@ public class OrderService {
                                                 "Order not found"));
 
                 return mapToOrderResponse(order);
+        }
+
+        @Transactional
+        public OrderResponse updateOrderStatus(
+                        String email,
+                        Long orderId,
+                        OrderStatus newStatus) {
+
+                // 1. Get logged-in user
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+                // 2. Get user's order
+                Order order = orderRepository
+                                .findByIdAndUserId(orderId, user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+                OrderStatus currentStatus = order.getStatus();
+
+                // 3. Validate status transition
+                if (!isValidStatusTransition(currentStatus, newStatus)) {
+                        throw new IllegalArgumentException(
+                                        "Invalid order status transition from "
+                                                        + currentStatus
+                                                        + " to "
+                                                        + newStatus);
+                }
+
+                // 4. Update order status
+                order.setStatus(newStatus);
+
+                // 5. Mark payment as SUCCESS when order is delivered
+                if (newStatus == OrderStatus.DELIVERED) {
+                        order.setPaymentStatus(PaymentStatus.SUCCESS);
+                }
+
+                // 6. Save updated order
+                Order updatedOrder = orderRepository.save(order);
+
+                return mapToOrderResponse(updatedOrder);
+        }
+
+        private boolean isValidStatusTransition(
+                        OrderStatus currentStatus,
+                        OrderStatus newStatus) {
+
+                return switch (currentStatus) {
+
+                        case CREATED ->
+                                newStatus == OrderStatus.CONFIRMED
+                                                || newStatus == OrderStatus.CANCELLED;
+
+                        case CONFIRMED ->
+                                newStatus == OrderStatus.SHIPPED
+                                                || newStatus == OrderStatus.CANCELLED;
+
+                        case SHIPPED ->
+                                newStatus == OrderStatus.DELIVERED;
+
+                        case DELIVERED, CANCELLED ->
+                                false;
+                };
+        }
+
+        @Transactional
+        public OrderResponse cancelOrder(
+                        String email,
+                        Long orderId) {
+
+                // 1. Get logged-in user
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+                // 2. Find the user's order
+                Order order = orderRepository
+                                .findByIdAndUserId(orderId, user.getId())
+                                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+                // 3. Validate whether order can be cancelled
+                if (order.getStatus() == OrderStatus.CANCELLED) {
+                        throw new IllegalStateException(
+                                        "Order is already cancelled");
+                }
+
+                if (order.getStatus() == OrderStatus.SHIPPED
+                                || order.getStatus() == OrderStatus.DELIVERED) {
+
+                        throw new IllegalStateException(
+                                        "Order cannot be cancelled after shipping");
+                }
+
+                // 4. Restore product stock
+                for (OrderItem item : order.getItems()) {
+
+                        Product product = productRepository
+                                        .findById(item.getProduct().getId())
+                                        .orElseThrow(() -> new ResourceNotFoundException(
+                                                        "Product not found: "
+                                                                        + item.getProduct().getId()));
+
+                        product.setStock(
+                                        product.getStock() + item.getQuantity());
+                }
+
+                // 5. Update order status
+                order.setStatus(OrderStatus.CANCELLED);
+
+                // 6. Save and return response
+                Order updatedOrder = orderRepository.save(order);
+
+                return mapToOrderResponse(updatedOrder);
         }
 }

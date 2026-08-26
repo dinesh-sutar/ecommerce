@@ -74,6 +74,17 @@ public class GlobalExceptionHandler {
                                 request);
         }
 
+        @ExceptionHandler(IllegalStateException.class)
+        public ResponseEntity<ApiErrorResponse> handleIllegalState(
+                        IllegalStateException ex,
+                        HttpServletRequest request) {
+
+                return buildResponse(
+                                HttpStatus.BAD_REQUEST,
+                                ex.getMessage(),
+                                request);
+        }
+
         @ExceptionHandler(InsufficientStockException.class)
         public ResponseEntity<ApiErrorResponse> handleInsufficientStock(
                         InsufficientStockException ex,
