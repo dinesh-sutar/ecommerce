@@ -2,9 +2,12 @@ package com.example.ecommerce.product.service;
 
 import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.product.dto.CreateProductRequest;
+import com.example.ecommerce.product.dto.ProductImageResponse;
 import com.example.ecommerce.product.dto.ProductResponse;
 import com.example.ecommerce.product.entity.Product;
+import com.example.ecommerce.product.repository.ProductImageRepository;
 import com.example.ecommerce.product.repository.ProductRepository;
+
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
@@ -12,11 +15,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final ProductImageRepository productImageRepository;
 
     public Page<ProductResponse> getProducts(
             String search,
@@ -75,6 +81,17 @@ public class ProductService {
     private ProductResponse mapToResponse(
             Product product) {
 
+        List<ProductImageResponse> images = productImageRepository
+                .findByProductIdOrderByIsPrimaryDesc(product.getId())
+                .stream()
+                .map(image -> ProductImageResponse.builder()
+                        .id(image.getId())
+                        .imageUrl(image.getImageUrl())
+                        .fileName(image.getFileName())
+                        .isPrimary(image.getIsPrimary())
+                        .build())
+                .toList();
+
         return ProductResponse.builder()
                 .id(product.getId())
                 .name(product.getName())
@@ -82,6 +99,8 @@ public class ProductService {
                 .price(product.getPrice())
                 .stock(product.getStock())
                 .category(product.getCategory())
+                .sku(product.getSku())
+                .images(images)
                 .build();
     }
 
