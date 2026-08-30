@@ -4,6 +4,7 @@ import com.example.ecommerce.exception.ResourceNotFoundException;
 import com.example.ecommerce.product.dto.CreateProductRequest;
 import com.example.ecommerce.product.dto.ProductResponse;
 import com.example.ecommerce.product.entity.Product;
+import com.example.ecommerce.product.repository.ProductImageRepository;
 import com.example.ecommerce.product.repository.ProductRepository;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -23,14 +24,19 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
         @Mock
         private ProductRepository productRepository;
+
+        @Mock
+        private ProductImageRepository productImageRepository;
 
         @InjectMocks
         private ProductService productService;
@@ -58,6 +64,10 @@ class ProductServiceTest {
                 when(productRepository.findById(1L))
                                 .thenReturn(Optional.of(product));
 
+                when(productImageRepository
+                                .findByProductIdOrderByIsPrimaryDesc(1L))
+                                .thenReturn(List.of());
+
                 ProductResponse response = productService.getProductById(1L);
 
                 assertNotNull(response);
@@ -68,9 +78,16 @@ class ProductServiceTest {
                 assertEquals(new BigDecimal("50000.00"), response.getPrice());
                 assertEquals(10, response.getStock());
                 assertEquals("Electronics", response.getCategory());
+                assertEquals("LAP-001", response.getSku());
+
+                assertNotNull(response.getImages());
+                assertTrue(response.getImages().isEmpty());
 
                 verify(productRepository)
                                 .findById(1L);
+
+                verify(productImageRepository)
+                                .findByProductIdOrderByIsPrimaryDesc(1L);
         }
 
         @Test
@@ -102,16 +119,30 @@ class ProductServiceTest {
                 when(productRepository.save(any(Product.class)))
                                 .thenReturn(product);
 
+                when(productImageRepository
+                                .findByProductIdOrderByIsPrimaryDesc(1L))
+                                .thenReturn(List.of());
+
                 ProductResponse response = productService.createProduct(request);
 
                 assertNotNull(response);
 
                 assertEquals(1L, response.getId());
                 assertEquals("Laptop", response.getName());
+                assertEquals("Gaming Laptop", response.getDescription());
                 assertEquals(new BigDecimal("50000.00"), response.getPrice());
+                assertEquals(10, response.getStock());
+                assertEquals("Electronics", response.getCategory());
+                assertEquals("LAP-001", response.getSku());
+
+                assertNotNull(response.getImages());
+                assertTrue(response.getImages().isEmpty());
 
                 verify(productRepository)
                                 .save(any(Product.class));
+
+                verify(productImageRepository)
+                                .findByProductIdOrderByIsPrimaryDesc(1L);
         }
 
         @Test
@@ -122,11 +153,17 @@ class ProductServiceTest {
                 when(productRepository.findAll(any(PageRequest.class)))
                                 .thenReturn(productPage);
 
+                when(productImageRepository
+                                .findByProductIdOrderByIsPrimaryDesc(1L))
+                                .thenReturn(List.of());
+
                 Page<ProductResponse> response = productService.getProducts(
                                 null,
                                 null,
                                 0,
                                 10);
+
+                assertNotNull(response);
 
                 assertEquals(1, response.getTotalElements());
 
@@ -134,8 +171,21 @@ class ProductServiceTest {
                                 "Laptop",
                                 response.getContent().get(0).getName());
 
+                assertEquals(
+                                "LAP-001",
+                                response.getContent().get(0).getSku());
+
+                assertNotNull(
+                                response.getContent().get(0).getImages());
+
+                assertTrue(
+                                response.getContent().get(0).getImages().isEmpty());
+
                 verify(productRepository)
                                 .findAll(any(PageRequest.class));
+
+                verify(productImageRepository)
+                                .findByProductIdOrderByIsPrimaryDesc(1L);
         }
 
         @Test
@@ -150,22 +200,42 @@ class ProductServiceTest {
                                                 any(PageRequest.class)))
                                 .thenReturn(productPage);
 
+                when(productImageRepository
+                                .findByProductIdOrderByIsPrimaryDesc(1L))
+                                .thenReturn(List.of());
+
                 Page<ProductResponse> response = productService.getProducts(
                                 "laptop",
                                 "Electronics",
                                 0,
                                 10);
 
+                assertNotNull(response);
+
                 assertEquals(1, response.getTotalElements());
+
                 assertEquals(
                                 "Laptop",
                                 response.getContent().get(0).getName());
+
+                assertEquals(
+                                "Electronics",
+                                response.getContent().get(0).getCategory());
+
+                assertNotNull(
+                                response.getContent().get(0).getImages());
+
+                assertTrue(
+                                response.getContent().get(0).getImages().isEmpty());
 
                 verify(productRepository)
                                 .findByNameContainingIgnoreCaseAndCategoryIgnoreCase(
                                                 eq("laptop"),
                                                 eq("Electronics"),
                                                 any(PageRequest.class));
+
+                verify(productImageRepository)
+                                .findByProductIdOrderByIsPrimaryDesc(1L);
         }
 
         @Test
@@ -179,21 +249,37 @@ class ProductServiceTest {
                                                 any(PageRequest.class)))
                                 .thenReturn(productPage);
 
+                when(productImageRepository
+                                .findByProductIdOrderByIsPrimaryDesc(1L))
+                                .thenReturn(List.of());
+
                 Page<ProductResponse> response = productService.getProducts(
                                 "laptop",
                                 null,
                                 0,
                                 10);
 
+                assertNotNull(response);
+
                 assertEquals(1, response.getTotalElements());
+
                 assertEquals(
                                 "Laptop",
                                 response.getContent().get(0).getName());
+
+                assertNotNull(
+                                response.getContent().get(0).getImages());
+
+                assertTrue(
+                                response.getContent().get(0).getImages().isEmpty());
 
                 verify(productRepository)
                                 .findByNameContainingIgnoreCase(
                                                 eq("laptop"),
                                                 any(PageRequest.class));
+
+                verify(productImageRepository)
+                                .findByProductIdOrderByIsPrimaryDesc(1L);
         }
 
         @Test
@@ -207,20 +293,40 @@ class ProductServiceTest {
                                                 any(PageRequest.class)))
                                 .thenReturn(productPage);
 
+                when(productImageRepository
+                                .findByProductIdOrderByIsPrimaryDesc(1L))
+                                .thenReturn(List.of());
+
                 Page<ProductResponse> response = productService.getProducts(
                                 null,
                                 "Electronics",
                                 0,
                                 10);
 
+                assertNotNull(response);
+
                 assertEquals(1, response.getTotalElements());
+
                 assertEquals(
                                 "Laptop",
                                 response.getContent().get(0).getName());
+
+                assertEquals(
+                                "Electronics",
+                                response.getContent().get(0).getCategory());
+
+                assertNotNull(
+                                response.getContent().get(0).getImages());
+
+                assertTrue(
+                                response.getContent().get(0).getImages().isEmpty());
 
                 verify(productRepository)
                                 .findByCategoryIgnoreCase(
                                                 eq("Electronics"),
                                                 any(PageRequest.class));
+
+                verify(productImageRepository)
+                                .findByProductIdOrderByIsPrimaryDesc(1L);
         }
 }
